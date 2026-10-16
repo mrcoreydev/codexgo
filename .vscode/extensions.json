@@ -1,0 +1,24 @@
+{
+  "recommendations": [
+    "ms-vscode-remote.remote-containers",
+    "ms-vscode-remote.remote-wsl",
+
+    "a-h.templ",
+    "aaron-bond.better-comments",
+    "cucumberopen.cucumber-official",
+    "docker.docker",
+    "esbenp.prettier-vscode",
+    "github.vscode-github-actions",
+    "golang.go",
+    "gruntfuggly.todo-tree",
+    "mongodb.mongodb-vscode",
+    "ms-azuretools.vscode-containers",
+    "postman.postman-for-vscode",
+    "redhat.vscode-yaml",
+    "stackbreak.comment-divider",
+    "streetsidesoftware.code-spell-checker",
+    "tamasfe.even-better-toml",
+    "task.vscode-task",
+    "thejltres.fomantic-ui-snippets"
+  ]
+}

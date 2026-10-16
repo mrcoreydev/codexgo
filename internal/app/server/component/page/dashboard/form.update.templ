@@ -1,0 +1,123 @@
+package dashboard
+
+const (
+	UpdateFormTagID = "update"
+)
+
+script UpdateFormInit(formTagID string) {
+    $(`#${formTagID}`)
+        .form({
+            ...Form.Settings,
+            fields: {
+                Email: {
+                    optional: true,
+                    rules: [
+                        ...Form.Rules.Email
+                    ]
+                },
+                Username: {
+                    optional: true,
+                    rules: [
+                       ...Form.Rules.Username
+                    ]
+                },
+                UpdatedPassword: {
+                    optional: true,
+                    rules: [
+                        ...Form.Rules.Password
+                    ]
+                },
+                ConfirmPassword: {
+                    depends: "UpdatedPassword",
+                    rules: [
+                        ...Form.Rules.Match("UpdatedPassword")
+                    ]
+                },
+                Password: {
+                    rules: [
+                        {
+                            type: "notEmpty",
+                            prompt: "{name} is required to update the account settings"
+                        },
+                        ...Form.Rules.Password
+                    ]
+                }
+            }
+        })
+        .api({
+            action: "user_update", 
+            method: "PATCH",
+            onSuccess: function(response, element, xhr) {
+                Form.Toast.Success(response)
+
+                setTimeout(() => {
+                    window.location.replace("/dashboard");
+                }, 1000);
+            },
+            onFailure: function(response, element, xhr) {
+                Form.Toast.Failure(response)
+            }
+        })
+    ;
+}
+
+templ UpdateForm(email, username string) {
+	<form id={ UpdateFormTagID } class="ui inverted form">
+		<h1 class="ui dividing inverted header">
+			Account settings
+		</h1>
+		<div class="required field">
+			<label>Email</label>
+			<div class="ui inverted transparent left icon input">
+				<i class="envelope icon"></i>
+				<input type="text" placeholder="Email" name="Email" value={ email }/>
+			</div>
+		</div>
+		<div class="required field">
+			<label>Username</label>
+			<div class="ui inverted transparent left icon input">
+				<i class="user icon"></i>
+				<input type="text" placeholder="Username" name="Username" value={ username }/>
+			</div>
+		</div>
+		<div class="required field">
+			<label>New Password</label>
+			<div class="ui inverted transparent left icon input">
+				<i class="lock icon"></i>
+				<input type="password" placeholder="New Password" name="UpdatedPassword"/>
+			</div>
+		</div>
+		<div class="required field">
+			<label>Confirm Password</label>
+			<div class="ui inverted transparent left icon input">
+				<i class="redo icon"></i>
+				<input type="password" placeholder="Confirm Password" name="ConfirmPassword"/>
+			</div>
+		</div>
+		<div class="ui divider"></div>
+		<div class="required field">
+			<label>Current Password</label>
+			<div class="ui inverted transparent left icon input">
+				<i class="lock icon"></i>
+				<input type="password" placeholder="Current Password" name="Password"/>
+			</div>
+		</div>
+		<div class="ui divider"></div>
+		<div class="ui grid">
+			<div class="two column row">
+				<div class="ten wide column">
+					<button class="ui fluid primary submit button">Update</button>
+				</div>
+				<div class="six wide column">
+					<button class="ui animated fluid negative reset button">
+						<div class="visible content">Reset</div>
+						<div class="hidden content">
+							<i class="trash icon"></i>
+						</div>
+					</button>
+				</div>
+			</div>
+		</div>
+	</form>
+	@UpdateFormInit(UpdateFormTagID)
+}

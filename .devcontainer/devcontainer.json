@@ -1,0 +1,43 @@
+{
+  "name": "codexgo",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {},
+    "ghcr.io/devcontainers/features/desktop-lite:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers-extra/features/go-task:1": {},
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.25"
+    }
+  },
+  "runArgs": ["--shm-size=1g"],
+  "forwardPorts": [2222, 6080],
+  "portsAttributes": {
+    "2222": { "label": "ssh" },
+    "6080": { "label": "desktop" }
+  },
+  "postCreateCommand": "task devcontainer-vscode/vscode",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "a-h.templ",
+        "aaron-bond.better-comments",
+        "cucumberopen.cucumber-official",
+        "docker.docker",
+        "esbenp.prettier-vscode",
+        "github.vscode-github-actions",
+        "golang.go",
+        "gruntfuggly.todo-tree",
+        "mongodb.mongodb-vscode",
+        "ms-azuretools.vscode-containers",
+        "postman.postman-for-vscode",
+        "redhat.vscode-yaml",
+        "stackbreak.comment-divider",
+        "streetsidesoftware.code-spell-checker",
+        "tamasfe.even-better-toml",
+        "task.vscode-task",
+        "thejltres.fomantic-ui-snippets"
+      ]
+    }
+  }
+}

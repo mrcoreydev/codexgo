@@ -1,0 +1,36 @@
+{
+  "name": "codexGO",
+  "short_name": "codexGO",
+  "version": "4.17.4",
+  "description": "codexGO",
+  "author": "Bastean <bastean@pm.me>",
+  "homepage_url": "https://github.com/bastean/codexgo#readme",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#202224",
+  "theme_color": "#202224",
+  "icons": [
+    {
+      "src": "assets/favicon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "assets/desktop-home.png",
+      "sizes": "1536x860",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Home Page"
+    },
+    {
+      "src": "assets/mobile-home.png",
+      "sizes": "425x800",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Home Page"
+    }
+  ]
+}

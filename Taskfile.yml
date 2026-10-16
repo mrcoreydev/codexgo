@@ -1,0 +1,789 @@
+version: "3"
+
+includes:
+  devcontainer:
+    taskfile: ./configs/devcontainer
+    optional: true
+    flatten: true
+  upgrade:
+    taskfile: ./configs/upgrade
+    optional: true
+    flatten: true
+
+vars:
+  # ------------------------------------ URL ----------------------------------- #
+
+  URL_SERVER: http://localhost:8080
+  URL_GITHUB: https://github.com/bastean/codexgo
+
+  # ------------------------------------ API ----------------------------------- #
+
+  API_SMTP: http://localhost:8025/api/v1
+
+  # ------------------------------------ Go ------------------------------------ #
+
+  GO_MODULE: github.com/bastean/codexgo/v4
+
+  # ---------------------------------- Prompt ---------------------------------- #
+
+  PROMPT_CONFIRMATION: Do you want to continue?
+  PROMPT_WARNING: This is a dangerous command... {{.PROMPT_CONFIRMATION}}
+
+tasks:
+  # ---------------------------------------------------------------------------- #
+  #                                      Bin                                     #
+  # ---------------------------------------------------------------------------- #
+
+  prompt-*:
+    internal: true
+    silent: true
+    requires:
+      vars: ["PROMPT"]
+    vars:
+      PROMPT: "{{index .MATCH 0}}"
+    cmd: echo {{.PROMPT}}
+
+  bashrc:
+    internal: true
+    requires:
+      vars: ["CONFIG"]
+    cmds:
+      - echo -e "{{.CONFIG}}" >> ~/.bashrc
+      - . ~/.bashrc
+
+  bash:
+    internal: true
+    requires:
+      vars: ["RUN"]
+    cmd: bash -o pipefail -c '{{.RUN}}'
+
+  curl:
+    internal: true
+    requires:
+      vars: ["URL", "PIPE"]
+    cmd: curl -sSfL {{.URL}} | {{.PIPE}}
+
+  replace:
+    internal: true
+    requires:
+      vars: ["OLD", "NEW", "FILE"]
+    cmd: sed -i -E 's/{{.OLD}}/{{.NEW}}/g' {{.FILE}}
+
+  # ---------------------------------------------------------------------------- #
+  #                                    Upgrade                                   #
+  # ---------------------------------------------------------------------------- #
+
+  ncu:
+    internal: true
+    cmd: bunx ncu -ws -u {{.FILTERS}}
+
+  upgrade-managers:
+    cmds:
+      - sudo apt install -y python3
+      - task: curl
+        vars:
+          URL: https://bun.sh/install
+          PIPE: sudo BUN_INSTALL=/usr/local bash
+
+  upgrade-system:
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      DEBIAN_PRIORITY: critical
+      NEEDRESTART_MODE: a
+    cmds:
+      - sudo apt update -y
+      - sudo apt upgrade -y
+      - sudo apt autoremove -y
+      - task: upgrade-managers
+
+  upgrade-go: go get -t -u ./cmd/... ./internal/... ./pkg/...
+
+  upgrade-copy: cdeps -c ./configs/cdeps/cdeps.json
+
+  upgrade-bun:
+    cmds:
+      - task: ncu
+      - task: ncu
+        vars:
+          FILTERS: fomantic-ui -t @nightly
+      - bun i --linker hoisted
+      - task: upgrade-copy
+
+  # ---------------------------------------------------------------------------- #
+  #                                    Install                                   #
+  # ---------------------------------------------------------------------------- #
+
+  go-install:
+    internal: true
+    requires:
+      vars: ["PACKAGES"]
+    cmds:
+      - for: { var: PACKAGES, as: PACKAGE }
+        cmd: go install {{.PACKAGE}}
+
+  install-scanners:
+    cmds:
+      - task: go-install
+        vars:
+          PACKAGES: github.com/google/osv-scanner/cmd/osv-scanner@latest
+      - task: curl
+        vars:
+          URL: https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh
+          PIPE: sudo sh -s -- -b /usr/local/bin
+      - task: curl
+        vars:
+          URL: https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh
+          PIPE: sudo sh -s -- -b /usr/local/bin
+
+  install-linters:
+    cmds:
+      - task: curl
+        vars:
+          URL: https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh
+          PIPE: sudo sh -s -- -b $(go env GOPATH)/bin
+
+  install-debuggers:
+    cmds:
+      - task: go-install
+        vars:
+          PACKAGES: golang.org/x/tools/cmd/deadcode@latest
+
+  install-tools-dev:
+    cmds:
+      - task: install-scanners
+      - task: install-linters
+      - task: install-debuggers
+      - task: go-install
+        vars:
+          PACKAGES:
+            - github.com/bastean/x/tools/cmd/cdeps@latest
+            - github.com/bastean/x/tools/cmd/syncenv@latest
+            - github.com/air-verse/air@latest
+            - github.com/dgraph-io/badger/v4/badger@latest
+            - github.com/a-h/templ/cmd/templ@latest
+
+  install-tools-test:
+    cmds:
+      - task: curl
+        vars:
+          URL: https://raw.githubusercontent.com/axllent/mailpit/develop/install.sh
+          PIPE: sudo bash
+      - go run github.com/playwright-community/playwright-go/cmd/playwright@latest install chromium --with-deps
+
+  install-tooling:
+    cmds:
+      - task: install-tools-dev
+      - task: install-tools-test
+
+  install-tooling-ci:
+    cmds:
+      - task: install-tools-dev
+
+  # ---------------------------------------------------------------------------- #
+  #                                   Download                                   #
+  # ---------------------------------------------------------------------------- #
+
+  download-dependencies:
+    cmds:
+      - go mod download
+      - bun i --linker hoisted --frozen-lockfile
+      - task: upgrade-copy
+
+  # ---------------------------------------------------------------------------- #
+  #                                   Generate                                   #
+  # ---------------------------------------------------------------------------- #
+
+  generate-required:
+    cmds:
+      - go generate ./...
+      - find . -name "*_templ.go" -type f -delete
+      - templ generate
+      - templ fmt .
+
+  # ---------------------------------------------------------------------------- #
+  #                                    Restore                                   #
+  # ---------------------------------------------------------------------------- #
+
+  restore:
+    cmds:
+      - bunx husky init
+      - git restore .
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Init                                     #
+  # ---------------------------------------------------------------------------- #
+
+  init:
+    cmds:
+      - task: upgrade-system
+      - task: install-tooling
+      - task: download-dependencies
+      - task: generate-required
+      - task: restore
+
+  init-ci:
+    cmds:
+      - task: upgrade-managers
+      - task: install-tooling-ci
+      - task: download-dependencies
+      - task: generate-required
+      - task: restore
+
+  genesis:
+    cmds:
+      - git init
+      - git add .
+      - task: init
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Sync                                     #
+  # ---------------------------------------------------------------------------- #
+
+  sync-env: syncenv -e ./deployments -t ./deployments/.env.example
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Scan                                     #
+  # ---------------------------------------------------------------------------- #
+
+  trufflehog-git:
+    internal: true
+    requires:
+      vars: ["URI"]
+    cmd: sudo trufflehog git {{.URI}} --only-verified
+
+  trivy-repo:
+    internal: true
+    requires:
+      vars: ["SCANNERS"]
+    cmd: trivy repo --skip-dirs vendor --skip-dirs node_modules --skip-dirs dist --exit-code 1 --scanners {{.SCANNERS}}
+
+  scan-secrets-local:
+    cmds:
+      - task: trufflehog-git
+        vars:
+          URI: file://.
+      - task: trivy-repo
+        vars:
+          SCANNERS: secret .
+
+  scan-secrets-remote:
+    cmds:
+      - task: trufflehog-git
+        vars:
+          URI: "{{.URL_GITHUB}}"
+      - task: trivy-repo
+        vars:
+          SCANNERS: secret {{.URL_GITHUB}}
+
+  scan-vulns-local:
+    cmds:
+      - osv-scanner --call-analysis=all -r .
+      - task: trivy-repo
+        vars:
+          SCANNERS: vuln .
+
+  scan-misconfigs-local:
+    cmds:
+      - task: trivy-repo
+        vars:
+          SCANNERS: misconfig .
+
+  scan-secrets:
+    cmds:
+      - task: scan-secrets-local
+      - task: scan-secrets-remote
+
+  scan-vulns:
+    cmds:
+      - task: scan-vulns-local
+
+  scan-misconfigs:
+    cmds:
+      - task: scan-misconfigs-local
+
+  scans:
+    cmds:
+      - task: scan-secrets
+      - task: scan-vulns
+      - task: scan-misconfigs
+
+  # ---------------------------------------------------------------------------- #
+  #                                  Lint/Format                                 #
+  # ---------------------------------------------------------------------------- #
+
+  prettier-*:
+    internal: true
+    requires:
+      vars: ["ACTION"]
+    vars:
+      ACTION: "{{index .MATCH 0}}"
+    cmd: bunx prettier --no-config --ignore-unknown --{{.ACTION}} .
+
+  lint:
+    cmds:
+      - go mod tidy
+      - go mod verify
+      - golangci-lint run --fix
+      - golangci-lint fmt
+      - task: prettier-write
+      - task: generate-required
+
+  lint-check:
+    cmds:
+      - golangci-lint run
+      - task: prettier-check
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Debug                                    #
+  # ---------------------------------------------------------------------------- #
+
+  debug-dead: deadcode -test ./...
+
+  debugs:
+    cmds:
+      - task: debug-dead
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Test                                     #
+  # ---------------------------------------------------------------------------- #
+
+  test-sut: air
+
+  test-clean:
+    cmds:
+      - task: generate-required
+      - go clean -testcache
+      - mkdir -p test/report
+
+  test-codegen: bunx playwright codegen {{.URL_SERVER}}
+
+  test-sync:
+    requires:
+      vars: ["TEST_SYNC"]
+    cmd: GOTEST=1 bunx concurrently -s first -k --names 'SUT,TEST' 'task test-sut' 'bunx wait-on -l {{.URL_SERVER | replace "http" "http-get"}}/health && {{.TEST_SYNC}}'
+
+  test-unit:
+    cmds:
+      - task: test-clean
+      - task: bash
+        vars:
+          RUN: GOTEST=1 go test -count=1 -v -cover ./pkg/... ./internal/pkg/... -run TestUnit.* |& tee test/report/unit.report.log
+
+  test-integration:
+    cmds:
+      - task: test-clean
+      - task: bash
+        vars:
+          RUN: GOTEST=1 go test -count=1 -race -v -cover ./pkg/... ./internal/pkg/... -run TestIntegration.* |& tee test/report/integration.report.log
+
+  test-acceptance-sync:
+    cmds:
+      - task: bash
+        vars:
+          RUN: SUT_URL="{{.URL_SERVER}}" SMTP_API="{{.API_SMTP}}" go test -count=1 -race -v -cover ./internal/app/... -run TestAcceptance.* |& tee test/report/acceptance.report.log
+
+  test-acceptance:
+    cmds:
+      - task: test-clean
+      - task: test-sync
+        vars:
+          TEST_SYNC: task test-acceptance-sync
+
+  test-flaky:
+    vars:
+      RANDOM: "{{randIntN 10 | add 3}}"
+      ITERATE: "{{.RANDOM | int | until}}"
+    cmds:
+      - task: prompt-"Iterations \"{{.RANDOM}}\""
+      - for: { var: ITERATE }
+        cmd: echo "Iteration \"{{trimAll "[]" .ITEM | add1}}/{{.RANDOM}}\"" && task test-unit
+
+  tests-sync:
+    cmds:
+      - task: bash
+        vars:
+          RUN: SUT_URL="{{.URL_SERVER}}" SMTP_API="{{.API_SMTP}}" go test -count=1 -race -v -cover ./... |& tee test/report/report.log
+
+  tests:
+    cmds:
+      - task: test-flaky
+      - task: test-clean
+      - task: test-sync
+        vars:
+          TEST_SYNC: task tests-sync
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Build                                    #
+  # ---------------------------------------------------------------------------- #
+
+  build:
+    cmds:
+      - task: lint
+      - rm -rf ./build
+      - go build -ldflags="-s -w" -o ./build/codexgo ./cmd/codexgo
+
+  # ---------------------------------------------------------------------------- #
+  #                                    Release                                   #
+  # ---------------------------------------------------------------------------- #
+
+  release-it:
+    internal: true
+    cmd: bunx release-it -V {{.OPTIONS}}
+
+  release-it-dry:
+    internal: true
+    cmd: bunx release-it -V -d --no-git.requireCleanWorkingDir {{.OPTIONS}}
+
+  release:
+    cmds:
+      - task: release-it
+
+  release-alpha:
+    cmds:
+      - task: release-it
+        vars:
+          OPTIONS: --preRelease=alpha
+
+  release-beta:
+    cmds:
+      - task: release-it
+        vars:
+          OPTIONS: --preRelease=beta
+
+  release-ci:
+    requires:
+      vars: ["OPTIONS"]
+    cmds:
+      - task: release-it
+        vars:
+          OPTIONS: --ci --no-git.requireCleanWorkingDir {{.OPTIONS}}
+
+  release-dry:
+    cmds:
+      - task: release-it-dry
+
+  release-dry-version:
+    cmds:
+      - task: release-it-dry
+        vars:
+          OPTIONS: --release-version
+
+  release-dry-changelog:
+    cmds:
+      - task: release-it-dry
+        vars:
+          OPTIONS: --changelog
+
+  # ---------------------------------------------------------------------------- #
+  #                                      Git                                     #
+  # ---------------------------------------------------------------------------- #
+
+  commit: bunx czg
+
+  git-v*:
+    requires:
+      vars: ["VERSION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    cmds:
+      - git checkout main
+      - git pull --rebase
+      - git checkout -b v{{.VERSION}}
+      - git push -u github v{{.VERSION}}
+      - git status
+
+  git-dev*:
+    requires:
+      vars: ["VERSION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    cmds:
+      - git checkout v{{splitList "." .VERSION | first}}
+      - git pull --rebase
+      - git checkout -b dev{{.VERSION}}
+      - git push -u github dev{{.VERSION}}
+      - git status
+
+  git-ci/dev*:
+    requires:
+      vars: ["VERSION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    cmds:
+      - git checkout dev{{.VERSION}}
+      - git pull --rebase
+      - git checkout -b ci/dev{{.VERSION}}
+      - git push -u github ci/dev{{.VERSION}}
+      - git status
+
+  git-main-ci/dev*:
+    requires:
+      vars: ["VERSION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    cmds:
+      - git checkout main
+      - git pull --rebase
+      - git merge ci/dev{{.VERSION}}
+      - git push
+      - git status
+
+  git-pull-v*:
+    requires:
+      vars: ["VERSION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    cmds:
+      - git checkout main
+      - git pull --rebase
+      - git checkout v{{.VERSION}}
+      - git merge main
+      - git push
+      - git status
+
+  git-cleanup-dev*:
+    requires:
+      vars: ["VERSION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+    cmds:
+      - git branch -d dev{{.VERSION}} ci/dev{{.VERSION}}
+      - git push -u github :dev{{.VERSION}} :ci/dev{{.VERSION}}
+      - git branch -a
+      - git status
+
+  git-prune: git remote prune github
+
+  git-off-c/*-*:
+    prompt: "{{.PROMPT_CONFIRMATION}}"
+    requires:
+      vars: ["TITLE", "DESCRIPTION"]
+    vars:
+      TITLE: "{{index .MATCH 0}}"
+      DESCRIPTION: "{{index .MATCH 1}}"
+    cmd: git commit -m "{{.TITLE}}" -m "{{.DESCRIPTION}}" --no-gpg-sign
+
+  git-off-t/*-*:
+    prompt: "{{.PROMPT_CONFIRMATION}}"
+    requires:
+      vars: ["VERSION", "DESCRIPTION"]
+    vars:
+      VERSION: "{{index .MATCH 0}}"
+      DESCRIPTION: "{{index .MATCH 1}}"
+    cmd: git tag -a {{.VERSION}} -m "{{.DESCRIPTION}}" --no-sign
+
+  git-soft-*/*-*:
+    prompt: "{{.PROMPT_CONFIRMATION}}"
+    requires:
+      vars: ["HASH", "TITLE", "DESCRIPTION"]
+    vars:
+      HASH: "{{index .MATCH 0}}"
+      TITLE: "{{index .MATCH 1}}"
+      DESCRIPTION: "{{index .MATCH 2}}"
+    cmds:
+      - git reset --soft {{.HASH}}
+      - git commit -m "{{.TITLE}}" -m "{{.DESCRIPTION}}"
+
+  WARNING-git-forget:
+    prompt: "{{.PROMPT_WARNING}}"
+    cmds:
+      - git rm -r --cached .
+      - git add .
+
+  WARNING-git-genesis:
+    prompt: "{{.PROMPT_WARNING}}"
+    cmds:
+      - git clean -e .env* -fdx
+      - git reset --hard HEAD
+      - task: init
+
+  # ---------------------------------------------------------------------------- #
+  #                                    Mailpit                                   #
+  # ---------------------------------------------------------------------------- #
+
+  mailpit: mailpit --smtp-auth-allow-insecure --smtp-auth-accept-any
+
+  # ---------------------------------------------------------------------------- #
+  #                                    Docker                                    #
+  # ---------------------------------------------------------------------------- #
+
+  docker-rm-img:
+    internal: true
+    requires:
+      vars: ["IMAGE"]
+    cmd: docker rmi -f {{.IMAGE}}
+
+  docker-rm-vol:
+    internal: true
+    requires:
+      vars: ["VOLUME"]
+    cmd: docker volume rm -f {{.VOLUME}}
+
+  compose-env:
+    internal: true
+    requires:
+      vars: ["OPTIONS"]
+    dir: deployments
+    cmd: docker compose --env-file {{.OPTIONS}}
+
+  docker-usage: docker system df
+
+  docker-it-*:
+    requires:
+      vars: ["ID"]
+    vars:
+      ID: "{{index .MATCH 0}}"
+    cmd: docker exec -it {{.ID}} bash
+
+  compose-up-*:
+    requires:
+      vars: ["ENV", "SERVICE"]
+    vars:
+      SERVICE: "{{index .MATCH 0}}"
+    cmds:
+      - task: compose-env
+        vars:
+          OPTIONS: "{{.ENV}} up {{.SERVICE}}"
+
+  compose-down-*:
+    requires:
+      vars: ["ENV", "SERVICE"]
+    vars:
+      SERVICE: "{{index .MATCH 0}}"
+    cmds:
+      - task: compose-env
+        vars:
+          OPTIONS: "{{.ENV}} down {{.SERVICE}}"
+
+  compose-dev-down:
+    cmds:
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.dev --profile dev down
+      - task: docker-rm-vol
+        vars:
+          VOLUME: codexgo-database-mongodb-dev
+
+  compose-dev:
+    cmds:
+      - task: compose-dev-down
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.dev --profile dev up
+
+  compose-test-down:
+    cmds:
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.test --profile test down
+      - task: docker-rm-vol
+        vars:
+          VOLUME: codexgo-database-mongodb-test
+
+  compose-test-integration:
+    cmds:
+      - task: compose-test-down
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.test --env-file .env.demo.test.integration --profile test up --exit-code-from codexgo
+
+  compose-test-acceptance:
+    cmds:
+      - task: compose-test-down
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.test --env-file .env.demo.test.acceptance --profile test up --exit-code-from codexgo
+
+  compose-tests:
+    cmds:
+      - task: compose-test-down
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.test --profile test up --exit-code-from codexgo
+
+  compose-prod-down:
+    cmds:
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.prod down
+      - task: docker-rm-img
+        vars:
+          IMAGE: codexgo
+
+  compose-prod:
+    cmds:
+      - task: compose-prod-down
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo.prod up --exit-code-from codexgo
+
+  demo-down:
+    cmds:
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo --profile demo down
+
+  demo:
+    cmds:
+      - task: demo-down
+      - task: compose-env
+        vars:
+          OPTIONS: .env.demo --profile demo up --exit-code-from codexgo
+
+  compose-down:
+    cmds:
+      - task: compose-dev-down
+      - task: compose-test-down
+      - task: compose-prod-down
+      - task: demo-down
+
+  WARNING-docker-prune-soft:
+    prompt: "{{.PROMPT_WARNING}}"
+    cmds:
+      - docker system prune
+      - task: compose-down
+      - task: docker-usage
+
+  WARNING-docker-prune-hard:
+    prompt: "{{.PROMPT_WARNING}}"
+    cmds:
+      - docker system prune --volumes -a
+      - task: compose-down
+      - task: docker-usage
+
+  # ---------------------------------------------------------------------------- #
+  #                                     Util                                     #
+  # ---------------------------------------------------------------------------- #
+
+  loop-*/*:
+    vars:
+      TOTAL: "{{index .MATCH 0}}"
+      ITERATE: "{{.TOTAL | int | until}}"
+      RUN: "{{index .MATCH 1}}"
+    cmds:
+      - for: { var: ITERATE }
+        cmd: echo "Iteration \"{{trimAll "[]" .ITEM | add1}}/{{.TOTAL}}\" - {{.RUN}}" && {{.RUN}}
+
+  log-*/*:
+    requires:
+      vars: ["CMD", "FLAG"]
+    vars:
+      CMD: "{{index .MATCH 0}}"
+      FLAG: "{{index .MATCH 1}}"
+    cmds:
+      - mkdir -p ignore/{{.CMD}}
+      - go run ./cmd/{{.CMD}} {{.FLAG}} |& tee ignore/{{.CMD}}/{{.FLAG}}.log
+
+  # ---------------------------------------------------------------------------- #
+  #                                      Fix                                     #
+  # ---------------------------------------------------------------------------- #
+
+  fix-dev:
+    cmds:
+      - task: upgrade-go
+      - task: install-tools-dev
+
+  fix-test:
+    cmds:
+      - task: upgrade-go
+      - task: install-tools-test

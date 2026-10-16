@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, ci/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  Sentinel:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup
+        uses: ./.github/actions/setup
+
+      - name: Scan
+        run: |
+          task scan-secrets-local
+          task scan-vulns-local
+          task scan-misconfigs-local
+
+      - name: Lint
+        run: task lint-check
+
+      - name: Test
+        run: task test-flaky
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: Test Report
+          path: ./test/report
+          retention-days: 30
